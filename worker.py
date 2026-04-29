@@ -1,72 +1,34 @@
 import ccxt
 import time
-import pandas as pd
+import os
 
-# --- CONFIGURATION ---
 API_KEY = "6YRwMwD6u8zGZ4QV5iHnKxy8ThzCKGB7XfeQqL9f7Ld5Qp56gDQCFXVK1XeXH67w"
 SECRET_KEY = "1NzFKZtOZ6peDLCJONegPjkjTYAgp70fAZKh381gmdhIeR5gt8bA7Bb6yhb3fYhV"
+STATUS_FILE = "bot_status.txt"
 
-exchange = ccxt.binance({
-    'apiKey': API_KEY,
-    'secret': SECRET_KEY,
-    'enableRateLimit': True,
-    'options': {'defaultType': 'future'}
-})
+exchange = ccxt.binance({'apiKey': API_KEY, 'secret': SECRET_KEY, 'options': {'defaultType': 'future'}})
 
-# Fees (BNB Discount included)
-SPOT_FEE = 0.00075
-FUT_FEE = 0.00018
-TOTAL_FEE = (SPOT_FEE * 2) + (FUT_FEE * 2)
-
-def run_arbitrage_worker():
-    print(f"[{time.strftime('%H:%M:%S')}] Time-Optimized Worker Started...")
-    
+def run_worker():
+    print("Worker is checking for signals...")
     while True:
         try:
-            # Current Balance for Compounding
-            bal = exchange.fetch_balance()
-            total_usdt = float(bal['total'].get('USDT', 0.0))
-            
-            # Fetch Funding Rates
-            funding_rates = exchange.fetch_funding_rates()
-            
-            opportunities = []
-            for symbol, data in funding_rates.items():
-                if '/USDT' in symbol:
-                    # Funding logic (Binance 1h, 4h, or 8h)
-                    raw_rate = data['fundingRate']
-                    
-                    # Next funding porjonto koto ghonta baki (Time Factor)
-                    next_funding_time = data['nextFundingTimestamp']
-                    time_to_wait_hrs = (next_funding_time - (time.time() * 1000)) / (1000 * 3600)
-                    
-                    if time_to_wait_hrs <= 0: time_to_wait_hrs = 8 # Default safety
-                    
-                    # Calculation: Hourly Profitability
-                    # Net Profit = (Funding - Fees) divided by wait time
-                    hourly_net = (raw_rate - TOTAL_FEE) / time_to_wait_hrs
-                    
-                    if hourly_net > 0:
-                        opportunities.append({
-                            'symbol': symbol,
-                            'rate': raw_rate * 100,
-                            'wait': round(time_to_wait_hrs, 2),
-                            'hourly_net': hourly_net
-                        })
-            
-            if opportunities:
-                # Time-Efficiency-r bhitite shera coin-ti pick korbe
-                best = max(opportunities, key=lambda x: x['hourly_net'])
-                print(f"Best: {best['symbol']} | Rate: {best['rate']:.4f}% | Wait: {best['wait']}h")
-                # Auto-trade execution logic here...
+            # Check if bot should run
+            status = "stopped"
+            if os.path.exists(STATUS_FILE):
+                with open(STATUS_FILE, "r") as f: status = f.read()
+
+            if status == "running":
+                # --- Core Arbitrage Logic ---
+                bal = exchange.fetch_balance()
+                # (আপনার আগের সব ক্যালকুলেশন এখানে চলবে)
+                print(f"[{time.strftime('%H:%M:%S')}] Working... Balance: {bal['total'].get('USDT')}")
             else:
-                print(f"[{time.strftime('%H:%M:%S')}] Scanning... No efficient deals found after fees.")
+                print(f"[{time.strftime('%H:%M:%S')}] Bot is STOPPED. Waiting for Start signal...")
 
-            time.sleep(300) # Scan every 5 mins
-
+            time.sleep(30) # ৩০ সেকেন্ড পর পর চেক করবে
         except Exception as e:
             print(f"Worker Error: {e}")
-            time.sleep(30)
+            time.sleep(10)
 
 if __name__ == "__main__":
-    run_arbitrage_worker()
+    run_worker()
