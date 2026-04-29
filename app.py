@@ -1,12 +1,14 @@
 import streamlit as st
 import ccxt
 import pandas as pd
-from datetime import datetime
+import os
 
+# API Config
 API_KEY = "6YRwMwD6u8zGZ4QV5iHnKxy8ThzCKGB7XfeQqL9f7Ld5Qp56gDQCFXVK1XeXH67w"
 SECRET_KEY = "1NzFKZtOZ6peDLCJONegPjkjTYAgp70fAZKh381gmdhIeR5gt8bA7Bb6yhb3fYhV"
+STATUS_FILE = "bot_status.txt"
 
-st.set_page_config(page_title="Arbitrage 24/7 Monitor", layout="wide")
+st.set_page_config(page_title="Arbitrage Controller", layout="wide")
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -20,35 +22,43 @@ if not st.session_state.logged_in:
             st.session_state.logged_in = True
             st.rerun()
 else:
-    st.sidebar.title("🤖 Arbitrage Controller")
-    if st.sidebar.button("🚪 Logout"):
+    # --- Sidebar Controls ---
+    st.sidebar.title("🤖 Bot Control Panel")
+    
+    # Start/Stop Logic using a local file
+    if st.sidebar.button("🟢 START BOT", use_container_width=True):
+        with open(STATUS_FILE, "w") as f: f.write("running")
+        st.sidebar.success("বোটকে চলার নির্দেশ দেওয়া হয়েছে।")
+
+    if st.sidebar.button("🔴 STOP BOT", use_container_width=True):
+        with open(STATUS_FILE, "w") as f: f.write("stopped")
+        st.sidebar.warning("বোটকে থামার নির্দেশ দেওয়া হয়েছে।")
+
+    st.sidebar.divider()
+    if st.sidebar.button("🚪 Logout", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
 
+    # --- Main Dashboard ---
     st.title("📈 Live Efficiency Monitor")
     
+    # Check current status
+    current_status = "Unknown"
+    if os.path.exists(STATUS_FILE):
+        with open(STATUS_FILE, "r") as f: current_status = f.read()
+
     try:
         ex = ccxt.binance({'apiKey': API_KEY, 'secret': SECRET_KEY})
-        # Balance Fetch (Spot + Futures)
         b = ex.fetch_balance()
-        s_bal = b['total'].get('USDT', 0.0)
-        f_bal = ex.fetch_balance({'type': 'future'})['total'].get('USDT', 0.0)
-        total = s_bal + f_bal
+        total = b['total'].get('USDT', 0.0) + ex.fetch_balance({'type': 'future'})['total'].get('USDT', 0.0)
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Balance", f"${total:.2f}")
-        c2.success("Worker: Active (Singapore) ✅")
-        c3.info("Strategy: Time-Weighted Arbitrage")
+        c2.success(f"Worker Status: {current_status.upper()}")
+        c3.info("Strategy: Time-Weighted")
 
-        st.subheader("⏱️ Time-Sensitive Opportunities")
-        # Sample table showing the time logic
-        st.table(pd.DataFrame({
-            "Coin": ["Scanning...", "---"],
-            "Next Funding In": ["1h / 4h / 8h", "---"],
-            "Efficiency Score": ["Highest Priority", "---"]
-        }))
+        st.subheader("⏱️ Live Opportunities")
+        st.table(pd.DataFrame({"Coin": ["Scanning..."], "Efficiency": ["Calculating..."]}))
 
     except Exception as e:
         st.error(f"Sync Error: {e}")
-
-    st.caption("Developed for Md Mashud Parvesh | © 2026")
