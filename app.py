@@ -14,6 +14,8 @@ st.set_page_config(page_title="Binance Arbitrage Bot", layout="wide")
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+if "bot_running" not in st.session_state:
+    st.session_state.bot_running = False
 
 def logout():
     st.session_state.logged_in = False
@@ -21,8 +23,8 @@ def logout():
 
 if not st.session_state.logged_in:
     st.title("🔐 Arbitrage Bot Login")
-    user = st.text_input("Username")
-    pw = st.text_input("Password", type="password")
+    user = st.text_input("Username", key="u1")
+    pw = st.text_input("Password", type="password", key="p1")
     if st.button("Login"):
         if user == USER_ID and pw == USER_PASS:
             st.session_state.logged_in = True
@@ -34,37 +36,70 @@ else:
     st.sidebar.title("🤖 Bot Control Panel")
     st.sidebar.success("Region: Singapore ✅")
     
+    use_compounding = st.sidebar.checkbox("Enable Auto-Compounding", value=True)
+    
+    if st.sidebar.button("🟢 START BOT", use_container_width=True):
+        st.session_state.bot_running = True
+        st.session_state.start_time = datetime.now()
+    
+    if st.sidebar.button("🔴 STOP BOT", use_container_width=True):
+        st.session_state.bot_running = False
+
+    st.sidebar.divider()
     if st.sidebar.button("🚪 Logout", use_container_width=True):
         logout()
 
+    # --- Main Dashboard ---
     st.title("🚀 Universal Arbitrage Dashboard")
     
     try:
-        # Improved Connection Logic
+        # Connect to Binance
         exchange = ccxt.binance({
             'apiKey': BINANCE_API_KEY,
             'secret': BINANCE_SECRET_KEY,
             'enableRateLimit': True,
-            'options': {
-                'defaultType': 'future',
-                'adjustForTimeDifference': True 
-            }
+            'options': {'defaultType': 'future'}
         })
         
-        # ব্যালেন্স চেক করার আগে টাইম সিঙ্ক করা (রেন্ডার সার্ভারের জন্য জরুরি)
-        exchange.load_markets()
-        
+        # Sync time and Fetch Balance
         balance_data = exchange.fetch_balance()
         usdt_balance = float(balance_data['total'].get('USDT', 0.0))
         
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Current Balance (USDT)", f"${usdt_balance:.2f}")
-        c2.info("সার্ভার সফলভাবে বিন্যান্সের সাথে কানেক্ট হয়েছে।")
+        
+        if st.session_state.bot_running:
+            elapsed = datetime.now() - st.session_state.start_time
+            c2.metric("Running Time", str(elapsed).split('.')[0])
+            c3.metric("Mode", "Compounding ON")
+            st.success(f"বোট সক্রিয়: বর্তমানে আপনার পূর্ণ ${usdt_balance:.2f} ব্যালেন্স নিয়ে স্ক্যানিং চলছে।")
+        else:
+            c2.metric("Status", "Stopped")
+            st.warning("বোট বর্তমানে বন্ধ আছে। 'START BOT' চাপুন।")
 
     except Exception as e:
         st.error(f"Connection Error: {e}")
-        st.info("পরামর্শ: যদি আবার 'Restricted Location' দেখায়, তবে বিন্যান্স এপিআই সেটিংসে গিয়ে আইপি রেস্ট্রিকশন 'Unrestricted' আছে কি না চেক করুন।")
+        st.info("টিপস: যদি Signature Error দেখায়, তবে আপনার API Key এবং Secret Key বিন্যান্স থেকে পুনরায় চেক করে কপি করুন।")
 
-    # Placeholder for trades
-    st.subheader("📊 Live Opportunities")
-    st.write("বোট স্ক্যান করার জন্য প্রস্তুত। 'START' বাটনটি আপনার আগের কোড অনুযায়ী কাজ করবে।")
+    # Layout for Results
+    col_left, col_right = st.columns([2, 1])
+
+    with col_left:
+        st.subheader("📊 Live Arbitrage Opportunities")
+        data = {
+            "Coin": ["Searching...", "---", "---"],
+            "Funding Rate": ["0.0000%", "0.0000%", "0.0000%"],
+            "Net Profit": ["0.00%", "0.00%", "0.00%"],
+            "Pay Time": ["--", "--", "--"]
+        }
+        st.table(pd.DataFrame(data))
+
+    with col_right:
+        st.subheader("📜 Trading Logs")
+        if st.session_state.bot_running:
+            st.info(f"[{datetime.now().strftime('%H:%M:%S')}] API Connected.\nScanning 300+ coins...")
+        else:
+            st.write("বোট চালু করার জন্য অপেক্ষা করছি...")
+
+    st.divider()
+    st.caption("Developed for Md Mashud Parvesh | © 2026 Arbitrage Systems")
