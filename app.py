@@ -14,102 +14,83 @@ SPOT_FEE = 0.00075
 FUT_FEE = 0.00018
 TOTAL_FEE = (SPOT_FEE * 2) + (FUT_FEE * 2)
 
-st.set_page_config(page_title="Arbitrage Master Controller", layout="wide")
+st.set_page_config(page_title="Arbitrage Final Control", layout="wide")
 
-# --- AUTHENTICATION ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
-    st.title("🔐 Secure Bot Login")
+    st.title("🔐 Secure Login")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
     if st.button("Login"):
         if u == "admin" and p == "ruppur2026":
             st.session_state.logged_in = True
             st.rerun()
-        else:
-            st.error("Invalid Credentials!")
 else:
-    # --- SIDEBAR CONTROLS ---
-    st.sidebar.title("🤖 Bot Control Panel")
-    
+    # Sidebar
+    st.sidebar.title("🤖 Bot Control")
     if st.sidebar.button("🟢 START BOT", use_container_width=True):
         with open(STATUS_FILE, "w") as f: f.write("running")
-        st.sidebar.success("বোট চলার নির্দেশ পেয়েছে।")
-
     if st.sidebar.button("🔴 STOP BOT", use_container_width=True):
         with open(STATUS_FILE, "w") as f: f.write("stopped")
-        st.sidebar.warning("বোট থামার নির্দেশ পেয়েছে।")
 
-    st.sidebar.divider()
-    if st.sidebar.button("🚪 Logout", use_container_width=True):
-        st.session_state.logged_in = False
-        st.rerun()
-
-    # --- MAIN DASHBOARD ---
     st.title("🚀 Universal Arbitrage Dashboard")
     
     try:
-        # Binance Connection (Spot & Future Sync)
         ex = ccxt.binance({'apiKey': API_KEY, 'secret': SECRET_KEY, 'enableRateLimit': True})
         
-        # ১. লাইভ ব্যালেন্স চেক (Spot + Futures)
+        # ১. ব্যালেন্স লোড (Spot + Future)
         bal = ex.fetch_balance()
-        spot_usdt = bal['total'].get('USDT', 0.0)
         fut_bal = ex.fetch_balance({'type': 'future'})
-        fut_usdt = fut_bal['total'].get('USDT', 0.0)
-        total_balance = spot_usdt + fut_usdt
+        total_balance = (bal['total'].get('USDT', 0) or 0) + (fut_bal['total'].get('USDT', 0) or 0)
 
-        # ২. স্ট্যাটাস চেক
+        # ২. স্ট্যাটাস
         bot_status = "STOPPED"
         if os.path.exists(STATUS_FILE):
             with open(STATUS_FILE, "r") as f: bot_status = f.read().upper()
 
-        # ৩. মেট্রিক্স ডিসপ্লে
         c1, c2, c3 = st.columns(3)
         c1.metric("Live Total Balance", f"${total_balance:.2f}")
         c2.metric("Bot Status", bot_status)
-        c3.info("Strategy: Time-Weighted + Auto-Compounding")
+        c3.info("Strategy: Time-Weighted + Compounding")
 
-        # ৪. লাইভ মার্কেট স্ক্যান (সব অপশনসহ)
+        # ৩. ডাটা স্ক্যান ও এরর ফিক্স
         st.subheader("⏱️ Live Profit Opportunities (After Fees)")
-        
-        funding_rates = ex.fetch_funding_rates()
+        rates = ex.fetch_funding_rates()
         profitable_list = []
         
-        for symbol, data in funding_rates.items():
-            if '/USDT' in symbol:
-                f_rate = data['fundingRate']
-                next_pay = data['nextFundingTimestamp']
-                
-                # টাইম ক্যালকুলেশন (টাইম-সেনসিটিভ লজিক)
-                time_to_wait = (next_pay - (datetime.now().timestamp() * 1000)) / (1000 * 3600)
-                if time_to_wait <= 0: time_to_wait = 8
-                
-                # নিট লাভ = ফান্ডিং রেট - ৪ ধাপের মোট ফি
-                net_profit = f_rate - TOTAL_FEE
-                
-                # এফিসিয়েন্সি স্কোর (আপনার ১ঘণ্টা বনাম ৪ঘণ্টা লজিক)
-                efficiency_score = net_profit / time_to_wait
+        now = datetime.now().timestamp() * 1000
 
-                if net_profit > 0:
-                    profitable_list.append({
-                        "Coin": symbol,
-                        "Funding Rate (%)": f"{f_rate * 100:.4f}%",
-                        "Net Profit (%)": f"{net_profit * 100:.4f}%",
-                        "Next Pay In": f"{time_to_wait:.2f}h",
-                        "Efficiency Score": round(efficiency_score * 100, 6)
-                    })
+        for symbol, data in rates.items():
+            if '/USDT' in symbol:
+                f_rate = data.get('fundingRate')
+                next_pay = data.get('nextFundingTimestamp')
+                
+                # নিশ্চিত করা যে ডাটা None নয়
+                if f_rate is not None and next_pay is not None:
+                    time_to_wait = (next_pay - now) / (1000 * 3600)
+                    if time_to_wait <= 0: time_to_wait = 1
+                    
+                    net_profit = float(f_rate) - TOTAL_FEE
+                    efficiency = net_profit / time_to_wait
+
+                    if net_profit > 0:
+                        profitable_list.append({
+                            "Coin": symbol,
+                            "Funding (%)": f"{f_rate * 100:.4f}%",
+                            "Net Profit (%)": f"{net_profit * 100:.4f}%",
+                            "Wait": f"{time_to_wait:.2f}h",
+                            "Score": round(efficiency * 100, 6)
+                        })
 
         if profitable_list:
-            df = pd.DataFrame(profitable_list).sort_values(by="Efficiency Score", ascending=False)
+            df = pd.DataFrame(profitable_list).sort_values(by="Score", ascending=False)
             st.table(df.head(10))
         else:
-            st.warning("বর্তমানে ফি বাদ দেওয়ার পর কোনো লাভজনক কয়েন পাওয়া যায়নি। স্ক্যানিং চলছে...")
+            st.warning("বর্তমানে ফি বাদ দিয়ে কোনো লাভজনক সুযোগ নেই।")
 
     except Exception as e:
-        st.error(f"Connection Error: {e}")
+        st.error(f"System logic updated: {e}")
 
-    st.divider()
-    st.caption(f"Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Region: Singapore ✅")
+    st.caption(f"Last Sync: {datetime.now().strftime('%H:%M:%S')} | Singapore ✅")
